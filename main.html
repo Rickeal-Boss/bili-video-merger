@@ -17,69 +17,160 @@
         <p>请耐心等待必须的视频处理组件加载完成，谢谢！</p>
       </h3>
     </div>
+
     <h3>B站缓存音视频合并工具</h3>
+
     <div style="font-size: smaller;">
       <span>仅需上传video.m4s和audio.m4s，然后稍作等待，便可得到合并的视频~</span><br />
       <span style="color: red;">特别注意：切忌修改从B站下载的视频文件，可能造成文件损坏无法识别，如遇这种情况请删除后重新下载！</span><br />
-      <span style="color: #1e90ff;">提示：本工具全程在您的本地浏览器执行，故受限于浏览器的性能等因素，处理较大的文件用时可能会相对较长，感谢理解！</span><br /><br />
+      <span style="color: #1e90ff;">提示：本工具全程在您的本地浏览器执行，故受限于浏览器的性能等因素，处理较大的文件用时可能会相对较长，感谢您的理解！</span>
     </div>
+
     <div id="uploader">
       <span>在这里上传视频文件（video）：<input type="file" id="uploaderVideo"></span><br />
       <span>在这里上传音频文件（audio）：<input type="file" id="uploaderAudio"></span><br />
       <input type="submit" onclick="runTools();" value="上传完成后，点我开始合并"><br />
     </div>
+
     <p id="message"></p>
+
     <div id="opt" style="display: none;">
       <input type="submit" onclick="download(document.getElementById('outputVideo').src)" value="点我下载输出的视频"><br />
       <video id="outputVideo" controls style="width:300px;height:auto;"></video><br />
     </div>
+
     <p id="logger" style="font-size: smaller;"></p>
-    <footer style="color: #1e90ff;font-size: smaller;"><hr />
+
+    <footer style="color: #1e90ff;font-size: smaller;">
+      <hr />
       Open source on <a href="https://github.com/ZiAzusa/bili-video-merger" style="color: #52b3ff;" target="_blank">GitHub</a>; Made with ♡ by 魂归梓里(ZiAzusa)
     </footer>
+
     <script>
+      const messageEl = document.getElementById('message');
+      const loggerEl = document.getElementById('logger');
+      const outputVideoEl = document.getElementById('outputVideo');
+      const uploaderEl = document.getElementById('uploader');
+      const hideEl = document.getElementById('hide');
+
+      const setMessage = (text, color = "") => {
+        messageEl.textContent = text;
+        messageEl.style.color = color || "";
+      };
+
+      const setLogger = (text, color = "") => {
+        loggerEl.textContent = String(text);
+        loggerEl.style.color = color || "";
+      };
+
       console.logger = console.log;
-      console.log = (log, color="") => {
+      console.log = (log, color = "") => {
         console.logger(log);
-        document.getElementById('logger').innerHTML = log;
-        document.getElementById('logger').style.color = color;
-      }
-      const {createFFmpeg, fetchFile} = FFmpeg;
+        setLogger(log, color);
+      };
+
+      const { createFFmpeg, fetchFile } = FFmpeg;
       const ffmpeg = createFFmpeg({
-        corePath: "https://" + location.hostname + "/scripts/ffmpeg/ffmpeg-core.js",
+        corePath: new URL("/scripts/ffmpeg/ffmpeg-core.js", location.origin).href,
         log: true,
       });
-      window.onload = async () => {
-        await fetch("https://" + location.hostname + "/scripts/ffmpeg/ffmpeg-core.wasm").then(res => {
-          if (res.status == 200) document.getElementById("hide").style.display = "none";
-          else alert("错误！视频处理组件加载失败，请稍后再试！");
+
+      const releaseOutputUrl = () => {
+        const src = outputVideoEl.src;
+        if (src && src.startsWith("blob:")) {
+          URL.revokeObjectURL(src);
+        }
+        outputVideoEl.removeAttribute("src");
+      };
+
+      const cleanupOutputFile = () => {
+        const files = ["output.mp4", "output-1.mp4", "output-2.mp4"];
+        files.forEach(fileName => {
+          try {
+            ffmpeg.FS("unlink", fileName);
+          } catch (e) {
+            // ignore if file does not exist
+          }
         });
-      }
-      const runTools = async () => {
-        document.getElementById('opt').style.display = "none";
-        document.getElementById('uploader').style = "pointer-events: none;opacity: .7;";
-        var message = document.getElementById('message');
+      };
+
+      const setUploaderDisabled = (disabled) => {
+        uploaderEl.style = disabled
+          ? "pointer-events: none;opacity: .7;"
+          : "pointer-events: initial;opacity: 1;";
+      };
+
+      window.onload = async () => {
         try {
-          message.innerHTML = '载入音视频转换组件FFmpeg...';
-          if (!ffmpeg.isLoaded()) await ffmpeg.load();
-          message.innerHTML = '开始合并，请稍后...';
-          let inv = document.getElementById("uploaderVideo").files[0];
-          let ina = document.getElementById("uploaderAudio").files[0];
-          ffmpeg.FS('writeFile', inv.name, await fetchFile(inv));
-          ffmpeg.FS('writeFile', ina.name, await fetchFile(ina));
-          await ffmpeg.run('-i', inv.name, '-i', ina.name, '-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental', 'output.mp4');
-          var data = ffmpeg.FS('readFile', 'output.mp4');
+          const wasmUrl = new URL("/scripts/ffmpeg/ffmpeg-core.wasm", location.origin).href;
+          const res = await fetch(wasmUrl);
+          if (res.status === 200) {
+            hideEl.style.display = "none";
+          } else {
+            throw new Error("FFmpeg WASM 加载失败");
+          }
         } catch (e) {
           console.log(e, "red");
-          message.innerHTML = '合并失败！建议重新下载B站视频后再上传！<br /><h5>可能原因：1.您修改了下载的B站原视频/音频文件；2.您下载的文件损坏；3.您的文件上传有误</h5>';
-          document.getElementById('uploader').style = "pointer-events: initial;opacity: 1;";
-          return;
+          alert("错误！视频处理组件加载失败，请稍后再试！");
         }
-        message.innerHTML = '合并完成！';
-        document.getElementById('outputVideo').src = URL.createObjectURL(new Blob([data.buffer], {type: 'video/mp4'}));
-        document.getElementById('opt').style.display = "block";
-        document.getElementById('uploader').style = "pointer-events: initial;opacity: 1;";
-      }
+      };
+
+      const runTools = async () => {
+        document.getElementById('opt').style.display = "none";
+        setUploaderDisabled(true);
+
+        try {
+          const inv = document.getElementById("uploaderVideo").files[0];
+          const ina = document.getElementById("uploaderAudio").files[0];
+
+          if (!inv || !ina) {
+            setMessage("请先选择 video.m4s 和 audio.m4s 两个文件。", "red");
+            return;
+          }
+
+          releaseOutputUrl();
+          cleanupOutputFile();
+
+          setMessage("载入音视频转换组件FFmpeg...");
+          if (!ffmpeg.isLoaded()) {
+            await ffmpeg.load();
+          }
+
+          setMessage("开始合并，请稍后...");
+          const videoName = inv.name || "video.m4s";
+          const audioName = ina.name || "audio.m4s";
+
+          ffmpeg.FS("writeFile", videoName, await fetchFile(inv));
+          ffmpeg.FS("writeFile", audioName, await fetchFile(ina));
+
+          const outputName = `output-${Date.now()}.mp4`;
+          await ffmpeg.run(
+            '-y',
+            '-i', videoName,
+            '-i', audioName,
+            '-c:v', 'copy',
+            '-c:a', 'aac',
+            '-strict', 'experimental',
+            outputName
+          );
+
+          const data = ffmpeg.FS("readFile", outputName);
+          const outputBlob = new Blob([data.buffer], { type: "video/mp4" });
+
+          releaseOutputUrl();
+          outputVideoEl.src = URL.createObjectURL(outputBlob);
+          document.getElementById('opt').style.display = "block";
+          setMessage("合并完成！", "green");
+        } catch (e) {
+          console.log(e, "red");
+          setMessage(
+            "合并失败！建议重新下载B站视频后再上传！<br />可能原因：1.您修改了下载的B站原视频/音频文件；2.您下载的文件损坏；3.浏览器或 FFmpeg 环境异常。",
+            "red"
+          );
+        } finally {
+          setUploaderDisabled(false);
+        }
+      };
     </script>
   </body>
 </html>
